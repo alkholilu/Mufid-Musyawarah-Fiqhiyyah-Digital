@@ -1,0 +1,136 @@
+📝 Product Requirement Document (PRD) – Platform Mufid (Revisi Final)
+1. Ringkasan Produk (Product Summary)
+Nama Produk: Mufid (Musyawarah Fiqhiyyah Digital)
+Deskripsi: Platform tata kelola, dokumentasi, kolaborasi real-time, dan publikasi hasil sidang keputusan hukum Islam (Bahtsul Masail).
+Tujuan Utama: Digitalisasi proses pengetikan dalil teks Arab berharakat, penyortiran kitab rujukan, pelurusan arah diskusi ilmiah, transparansi riwayat data, hingga ekspor dokumen resmi siap cetak (PDF/Word).
+Target Resolusi:
+Desktop Utama (1440px): Dioptimalkan penuh untuk seluruh Role (Admin, Mubahhisin, Muharrir, Mushohih).
+Responsif Seluler/Tablet: Wajib untuk Halaman Umum Publik dan Dashboard Mubahhisin untuk memudahkan input data di arena sidang.
+
+
+2. Struktur Pengguna, Batasan Akses, & Alur Kerja (Workflow)
+Sistem menggunakan kontrol transisi status (State Machine) dokumen yang terintegrasi secara dinamis menggunakan Supabase Realtime Replications.
+A. Admin (Panitia Pusat / Super Admin) — Pemegang Hak CRUD Absolut
+Admin memiliki bypass akses penuh (Omnipresent Access) ke seluruh tabel database dan objek penyimpanan berkas. Pada versi ini, fungsionalitas Admin diperluas menjadi kendali siklus data penuh (Full CRUD):
+Manajemen Soal (Asilah):
+Create: Menginput Judul, Kategori (Dinamis), Tahun, Deskripsi Masalah, dan Soal Pertanyaan Utama.
+Read: Memantau status distribusi soal di lapangan.
+Update (Live-Correction): Jika terjadi kekeliruan redaksi/pengetikan teks soal saat sidang berjalan, Admin dapat mengedit form tersebut kapan saja. Begitu tombol "Simpan Perubahan" ditekan, Supabase Realtime akan langsung menyiarkan (broadcast) perubahan teks tersebut ke layar Mubahhisin (Kelompok Peserta), Muharrir (Perumus), dan Mushohih (Supervisi) dalam waktu < 1 detik tanpa memutus atau menghapus draf jawaban yang sedang diketik oleh peserta.
+Delete: Mengarsipkan atau menghapus soal jika terjadi pembatalan pembahasan oleh dewan hakim sidang.
+Manajemen User (Pengguna):
+Create: Mendaftarkan akun email dan sandi baru untuk Mubahhisin, Muharrir, dan Mushohih.
+Read: Memantau daftar pengguna aktif dan penugasan kelompoknya.
+Update: Jika terjadi salah input peran (misal: user yang harusnya menjadi Muharrir salah dimasukkan sebagai Mubahhisin) atau salah alokasi kelompok, Admin dapat memperbarui data profil tersebut secara instan tanpa perlu membuat akun baru dari awal.
+Delete: Menghapus secara permanen akun lama yang sudah tidak aktif atau salah buat dengan aturan integritas database (Cascading Rules) agar tidak merusak data historis sidang terdahulu.
+Unggah Dokumen Final (PDF Portal):
+Create: Mengunggah file PDF resmi hasil keputusan sidang yang telah ditandatangani ke Supabase Storage Bucket.
+Read: Menghasilkan tautan publik (Friendly Slugs) untuk dibagikan ke masyarakat umum.
+Update (File Replacement): Jika dokumen PDF yang diunggah mengalami kesalahan baris, salah tanda tangan, atau halaman terbalik, Admin dapat melakukan replace (unggah ulang berkas baru untuk menimpa file lama). Sistem akan otomatis memperbarui objek di Storage dan menjaga agar slug URL publik di web tidak berubah/rusak.
+Delete: Menghapus dokumen PDF salah dari Storage dan sekaligus mengosongkan (nullify) kolom string URL pada tabel masalah terkait, sehingga tombol unduh di halaman publik otomatis hilang.
+
+B. Mubahhisin (Peserta / Utusan Kelompok)
+Akses Data: Hanya membaca soal aktif dari Admin. Hanya bisa membuat, mengedit, dan menyimpan draf jawaban milik nomor kelompoknya sendiri (dikunci oleh RLS database).
+Kondisi Kunci: Form terbuka jika status jawaban Draft atau Revisi. Form otomatis read-only jika status berubah menjadi Disetor atau Disahkan.
+
+C. Muharrir (Tim Perumus Sidang)
+Akses Data: Memantau masukan data dari 5 kelompok secara real-time.
+Fitur Kelola: Menandai draf terbaik sebagai is_referensi_utama, memberikan catatan evaluasi pelurusan diskusi per kelompok, dan mengetikkan draf Kesimpulan Global akhir (Natijah). Dapat mengembalikan status draf kelompok menjadi Revisi untuk membuka kembali gembok edit Mubahhisin.
+
+D. Mushohih (Dewan Penyelia / Hakim Tertinggi)
+Akses Data: Hak memeriksa, mengoreksi, dan mengedit langsung redaksi kalimat pada lembar pratinjau cetak gabungan di menit-menit akhir persidangan.
+Ketuk Palu: Mengubah status sidang menjadi Disahkan Mushohih, yang secara otomatis mengunci seluruh form di tingkat Mubahhisin & Muharrir secara permanen dan mempublikasikannya ke halaman umum masyarakat.
+
+3. Arsitektur Database (Supabase Stack)
+Desain relasional database PostgreSQL dioptimalkan untuk mendukung penuh aksi CRUD Admin serta menjaga jejak audit forensik:
+
+
+
+  ┌──────────────┐         ┌──────────────┐          ┌──────────────────────┐
+  │    roles     │         │   kelompok   │          │    masalah_sidang    │
+  └──────┬───────┘         └──────┬───────┘          └──────────┬───────────┘
+         │ 1                      │ 1                           │ 1
+         │                        │                             │
+         └───────────┬────────────┘                             │
+                     │ Many                                     │
+              ┌──────▼───────┐                                  │ Many
+              │   profiles   │                                  │
+              └──────────────┘                                  │
+                                                                │
+                                                     ┌──────────▼───────────┐
+                                                     │       jawaban        │
+                                                     └──────────────────────┘
+
+
+Tabel masalah_sidang: Menyimpan data soal. Perubahan (UPDATE) pada baris tabel ini oleh Admin akan langsung memicu replikasi data ke client side menggunakan Supabase Realtime Extension.
+Tabel jawaban: Menyimpan draf jawaban per kelompok. Kolom relasi masalah_id menggunakan aturan ON DELETE CASCADE. Artinya jika Admin menghapus satu soal, seluruh draf jawaban yang menempel pada soal tersebut ikut dibersihkan agar database tetap bersih.
+Tabel profiles: Menghubungkan Supabase Auth dengan metadata peran. Menggunakan kebijakan ON DELETE SET NULL atau penanganan khusus agar penghapusan akun lama oleh Admin tidak merusak foreign key relasional data historis.
+Tabel audit_logs: Kolom operator_name tidak menggunakan foreign key ke id pengguna, melainkan menyimpan data string snapshot nama operator saat aksi terjadi. Aturan ini mutlak agar ketika Admin menghapus user, baris log riwayat tindakan lama milik user tersebut di masa lalu tidak hilang dan tidak menyebabkan error crash pada tabel log.
+
+4. Keamanan & Kebijakan Row Level Security (RLS)
+Matriks kebijakan keamanan database Supabase dikonfigurasi ketat agar hak CRUD Admin tidak bocor ke peran lainnya:
+Tabel
+Role Pengguna
+Operasi Diizinkan (RLS)
+Logika Aturan / Kondisi Kebijakan
+masalah_sidang
+Publik (Tanpa Login)
+SELECT
+WHERE status_sidang = 'Disahkan'
+
+
+Mubahhisin / Perumus
+SELECT
+WHERE true (Bisa membaca semua soal pusat)
+
+
+Admin (Panitia)
+ALL (CRUD)
+Bypass RLS Enabled (Akses kontrol penuh)
+profiles / roles
+Mubahhisin / Perumus
+SELECT
+WHERE id = auth.uid() (Hanya bisa baca data sendiri)
+
+
+Admin (Panitia)
+ALL (CRUD)
+Bypass RLS Enabled (Bisa tambah, edit peran, & hapus akun)
+jawaban
+Mubahhisin
+INSERT / UPDATE
+WHERE kelompok_id = auth.profile.kelompok_id AND status_jawaban IN ('Draft', 'Revisi')
+
+
+Admin (Panitia)
+ALL (CRUD)
+Bypass RLS Enabled (Bita mengedit draf kelompok via override)
+Storage Bucket
+Publik (Tanpa Login)
+SELECT
+Hanya membaca file PDF di dalam folder publik
+(dokumen-sidang)
+Admin (Panitia)
+ALL (CRUD)
+Mengunggah berkas baru, menimpa file (replace), dan menghapus PDF.
+
+Perlindungan Kunci API: Kunci rahasia Secret Key (Service Role Key) wajib disembunyikan di sisi server backend (supabase/functions/.env) dan dilarang keras diekspos ke sisi frontend browser jemaat untuk mencegah kebocoran seluruh database.
+
+5. Sinkronisasi Performa & Real-Time Engine
+PostgreSQL Replication: Fitur Supabase Realtime wajib diaktifkan pada tabel masalah_sidang dan jawaban.
+Mekanisme Broadcast Update Soal: Ketika Admin mengubah teks soal di tengah persidangan karena adanya salah ketik, komponen React/Vue di sisi frontend Mubahhisin akan menangkap perubahan status payload database secara instan dan memperbarui teks komponen visual soal secara mulus tanpa melakukan hard reload halaman web, menjaga agar input teks yang sedang diketik peserta aman.
+Incremental Static Regeneration (ISR): Halaman repositori dokumen luar publik menggunakan pembaruan berkala otomatis. Ketika Admin melakukan penghapusan atau pengeditan dokumen PDF final, halaman publik akan melakukan revalidation otomatis dalam rentang waktu yang ditentukan agar data publik tetap akurat.
+
+
+
+6. Aksesibilitas & Praktik Terbaik (Accessibility & Best Practices)
+Keterbacaan Teks Keagamaan (Font Rendering):
+Aturan tata letak teks Arab wajib menggunakan atribut HTML dir="rtl" (Right-to-Left).
+Ukuran font teks Arab minimal 24px dengan jarak baris (line-height: 2.2) yang longgar agar penempatan harakat tanwin, tasydid, dan harakat pendek tidak bertumpuk atau terpotong.
+Clean Code & Git Workflow: Pemisahan folder Frontend (src/) dan Backend Infrastruktur (supabase/) secara tegas sesuai cetak biru struktur folder. Penerapan file .gitignore untuk mencegah file rahasia .env bocor ke repositori publik.
+Warna Kontras (UI/UX): Mengikuti standar kontras rasio minimal WCAG AA (Teks gelap di atas latar belakang putih murni) untuk menjamin kenyamanan mata para ustadz dan ulama sepuh yang membaca dokumen sidang dalam durasi lama.
+
+7. Optimasi Mesin Pencari (SEO)
+Penerapan Meta Tags Dinamis: Sistem secara otomatis menyusun tag <title> dan meta deskripsi secara dinamis berdasarkan judul pembahasan saat halaman keputusan dibuka (Contoh: <title>Hukum Menggunakan Seni AI - Bahtsul Masail Mufid</title>).
+Skema Data Terstruktur (Structured Data/Schema.org): Memasang JSON-LD jenis Article atau FAQPage di halaman detail keputusan agar jawaban hukum dari website Mufid dapat muncul sebagai cuplikan pilihan (rich snippets) di halaman pertama pencarian Google.
+URL Ramah Pengguna (Friendly Slugs): Alamat URL dokumen wajib menggunakan teks judul masalah, bukan ID angka acak (Contoh: /repositori/hukum-seni-ai-islami bukan /repositori/doc?id=9928).
+
