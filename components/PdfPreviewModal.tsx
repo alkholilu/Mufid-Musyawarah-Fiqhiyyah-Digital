@@ -195,8 +195,8 @@ export default function PdfPreviewModal({
         </head>
         <body>
           <div class="kop-header">
-            <h2>LEMBAGA BAHTSUL MASAIL (LBM)</h2>
-            <p>PENGURUS BESAR NAHDLATUL ULAMA / DEWAN MUSHOhiH SYARIAH</p>
+            <h2>MUFID - Musywarah Fiqhiyyah Digital</h2>
+            <p>Pondok Pesantren Putra Al-Fattah Kudus</p>
           </div>
 
           <div class="title-container">
