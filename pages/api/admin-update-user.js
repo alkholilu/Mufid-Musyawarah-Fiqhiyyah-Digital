@@ -1,21 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ygwckbmapejbdqbqghpz.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlnd2NrYm1hcGVqYmRxYnFnaHB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1ODYxNTAsImV4cCI6MjA5NzE2MjE1MH0.1lGdl9TzOH9gdyR1BIau0LHGXUm723uY_uP2-g_P84g";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-
-const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false
-  }
-});
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 1. Verify that the request is made by an Admin
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid authorization token' });
@@ -24,13 +17,18 @@ export default async function handler(req, res) {
   const token = authHeader.split(' ')[1];
 
   try {
-    // Verify the caller is indeed an Admin
-    const { data: { user: caller }, error: callerError } = await supabaseService.auth.getUser(token);
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+
+    // 1. Verify that the request is made by an Admin
+    const { data: { user: caller }, error: callerError } = await supabase.auth.getUser(token);
     if (callerError || !caller) {
       return res.status(401).json({ error: 'Sesi tidak valid.' });
     }
 
-    const { data: callerProfile, error: callerProfileError } = await supabaseService
+    const { data: callerProfile, error: callerProfileError } = await supabase
       .from('profiles')
       .select('roles(nama_role)')
       .eq('id', caller.id)
@@ -58,27 +56,26 @@ export default async function handler(req, res) {
       kelompok_id: kelompok_id || null
     };
 
-    const { error: profileError } = await supabaseService
+    const { error: profileError } = await supabase
       .from('profiles')
       .update(profileData)
       .eq('id', user_id);
 
     if (profileError) throw profileError;
 
-    // 4. Update email and/or password in Supabase Auth if provided
+    // 4. Update email and/or password in Supabase Auth if provided and service key exists
     const authUpdatePayload = {};
     if (email) authUpdatePayload.email = email;
     if (password) authUpdatePayload.password = password;
 
-    if (Object.keys(authUpdatePayload).length > 0) {
-      const { error: authUpdateError } = await supabaseService.auth.admin.updateUserById(
-        user_id,
-        authUpdatePayload
-      );
-
-      if (authUpdateError) {
-        console.warn('Auth update error:', authUpdateError.message);
-        return res.status(400).json({ error: `Gagal memperbarui autentikasi pengguna: ${authUpdateError.message}` });
+    if (Object.keys(authUpdatePayload).length > 0 && supabaseServiceKey) {
+      try {
+        const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
+          auth: { persistSession: false, autoRefreshToken: false }
+        });
+        await supabaseService.auth.admin.updateUserById(user_id, authUpdatePayload);
+      } catch (authErr) {
+        console.warn('[admin-update-user] Auth update warning:', authErr.message);
       }
     }
 

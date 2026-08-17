@@ -36,8 +36,27 @@ export default function Login() {
 
       setSuccessMsg('Login berhasil! Mengambil data profil...');
 
-      // 2. Fetch profile untuk mengetahui role pengguna
+      // 2. Periksa keamanan single session (Cek apakah akun sedang aktif di perangkat lain)
       const session = data.session;
+      const claimRes = await fetch('/api/auth-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'check_and_claim',
+          session_id: session.access_token,
+        }),
+      });
+
+      if (!claimRes.ok) {
+        const claimErr = await claimRes.json().catch(() => ({}));
+        await supabase.auth.signOut();
+        throw new Error(claimErr.error || 'Akun ini sedang aktif di perangkat lain. Mohon logout dari perangkat tersebut terlebih dahulu.');
+      }
+
+      // 3. Fetch profile untuk mengetahui role pengguna
       const res = await fetch('/api/getProfile', {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -45,7 +64,8 @@ export default function Login() {
       });
 
       if (!res.ok) {
-        throw new Error('Gagal mengambil data profil pengguna.');
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Gagal mengambil data profil pengguna.');
       }
 
       const profile = await res.json();
@@ -69,6 +89,7 @@ export default function Login() {
         window.location.href = dashboardPath;
       }
     } catch (error) {
+      setSuccessMsg('');
       if (error.message?.includes('Failed to fetch') || error.message?.includes('fetch')) {
         setErrorMsg('Gagal terhubung ke server database (Supabase). Pastikan koneksi internet Anda aktif.');
       } else if (error.message?.includes('Invalid login credentials')) {

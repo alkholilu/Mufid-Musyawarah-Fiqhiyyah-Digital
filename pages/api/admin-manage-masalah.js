@@ -1,21 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-
-const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false
-  }
-});
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ygwckbmapejbdqbqghpz.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlnd2NrYm1hcGVqYmRxYnFnaHB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1ODYxNTAsImV4cCI6MjA5NzE2MjE1MH0.1lGdl9TzOH9gdyR1BIau0LHGXUm723uY_uP2-g_P84g";
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 1. Verify that the request is made by an Admin
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid authorization token' });
@@ -24,12 +16,18 @@ export default async function handler(req, res) {
   const token = authHeader.split(' ')[1];
 
   try {
-    const { data: { user: caller }, error: callerError } = await supabaseService.auth.getUser(token);
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+
+    // 1. Verify caller user
+    const { data: { user: caller }, error: callerError } = await supabase.auth.getUser(token);
     if (callerError || !caller) {
       return res.status(401).json({ error: 'Sesi tidak valid.' });
     }
 
-    const { data: callerProfile, error: callerProfileError } = await supabaseService
+    const { data: callerProfile, error: callerProfileError } = await supabase
       .from('profiles')
       .select('roles(nama_role)')
       .eq('id', caller.id)
@@ -50,7 +48,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Judul, deskripsi, dan soal pertanyaan harus diisi.' });
       }
 
-      const { data, error } = await supabaseService
+      const { data, error } = await supabase
         .from('masalah_sidang')
         .insert({
           judul_pembahasan,
@@ -81,14 +79,13 @@ export default async function handler(req, res) {
       if (deskripsi_masalah !== undefined) updatePayload.deskripsi_masalah = deskripsi_masalah;
       if (soal_pertanyaan !== undefined) updatePayload.soal_pertanyaan = soal_pertanyaan;
 
-      const { data, error } = await supabaseService
+      const { data, error } = await supabase
         .from('masalah_sidang')
         .update(updatePayload)
         .eq('id', id)
         .select();
 
       if (error) throw error;
-
 
       return res.status(200).json({ success: true, message: 'Masalah berhasil diperbarui.', data });
     }
@@ -102,12 +99,12 @@ export default async function handler(req, res) {
       }
 
       // Delete related jawaban first
-      await supabaseService
+      await supabase
         .from('jawaban')
         .delete()
         .eq('masalah_id', id);
 
-      const { data, error } = await supabaseService
+      const { data, error } = await supabase
         .from('masalah_sidang')
         .delete()
         .eq('id', id)
@@ -125,7 +122,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'masalah_id dan jawaban harus disertakan.' });
       }
 
-      const { data, error } = await supabaseService
+      const { data, error } = await supabase
         .from('jawaban')
         .upsert(jawaban, { onConflict: 'id' })
         .select();

@@ -8,22 +8,14 @@ export const config = {
   },
 };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-
-const supabaseService = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ygwckbmapejbdqbqghpz.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlnd2NrYm1hcGVqYmRxYnFnaHB6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1ODYxNTAsImV4cCI6MjA5NzE2MjE1MH0.1lGdl9TzOH9gdyR1BIau0LHGXUm723uY_uP2-g_P84g";
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 1. Verify Authorization Header (Admin check)
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid authorization token' });
@@ -32,12 +24,17 @@ export default async function handler(req, res) {
   const token = authHeader.split(' ')[1];
 
   try {
-    const { data: { user: caller }, error: callerError } = await supabaseService.auth.getUser(token);
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: { user: caller }, error: callerError } = await supabase.auth.getUser(token);
     if (callerError || !caller) {
       return res.status(401).json({ error: 'Sesi tidak valid.' });
     }
 
-    const { data: callerProfile, error: callerProfileError } = await supabaseService
+    const { data: callerProfile, error: callerProfileError } = await supabase
       .from('profiles')
       .select('roles(nama_role)')
       .eq('id', caller.id)
@@ -55,7 +52,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'docId harus disertakan untuk menghapus berkas.' });
       }
 
-      const { error: dbError } = await supabaseService
+      const { error: dbError } = await supabase
         .from('repositori_dokumen')
         .delete()
         .eq('id', docId);
@@ -80,11 +77,11 @@ export default async function handler(req, res) {
     const base64Data = fileBase64.replace(/^data:.+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // 3. Upload Buffer to Supabase Storage using Service Role Key
+    // 3. Upload Buffer to Supabase Storage
     const fileExt = fileName.split('.').pop() || 'pdf';
     const storagePath = `pdf-repositori/repo-${Date.now()}.${fileExt}`;
 
-    const { error: uploadError } = await supabaseService.storage
+    const { error: uploadError } = await supabase.storage
       .from('dokumen-sidang')
       .upload(storagePath, buffer, {
         contentType: 'application/pdf',
@@ -97,13 +94,13 @@ export default async function handler(req, res) {
     }
 
     // 4. Get Public URL
-    const { data: publicUrlData } = supabaseService.storage
+    const { data: publicUrlData } = supabase.storage
       .from('dokumen-sidang')
       .getPublicUrl(storagePath);
 
     const publicUrl = publicUrlData.publicUrl;
 
-    // 5. Insert record directly into repositori_dokumen (Hanya untuk Repositori)
+    // 5. Insert record directly into repositori_dokumen
     const insertPayload = {
       headline: headline || 'Keputusan Hasil Bahtsul Masail',
       tagline: tagline || '28 Syawal 1448 H',
@@ -113,7 +110,7 @@ export default async function handler(req, res) {
       file_pdf_url: publicUrl,
     };
 
-    const { data: insertedDoc, error: dbError } = await supabaseService
+    const { data: insertedDoc, error: dbError } = await supabase
       .from('repositori_dokumen')
       .insert(insertPayload)
       .select()

@@ -41,45 +41,8 @@ export default function MuharrirDashboard() {
     setTimeout(() => setNotification(null), 4000);
   }, []);
 
-  // Auth Guard
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        if (!currentSession) {
-          window.location.href = '/Login';
-          return;
-        }
-        setSession(currentSession);
-
-        const res = await fetch('/api/getProfile', {
-          headers: { Authorization: `Bearer ${currentSession.access_token}` }
-        });
-        if (!res.ok) throw new Error('Profile fetch failed');
-        const data = await res.json();
-
-        if (data.roles?.nama_role !== 'Muharrir') {
-          window.location.href = '/Login';
-          return;
-        }
-        setProfile(data);
-
-        await Promise.all([
-          fetchMasalah(),
-          fetchAllJawaban()
-        ]);
-      } catch (err) {
-        console.error('Auth error:', err);
-        window.location.href = '/Login';
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkAuth();
-  }, []);
-
   // Fetch Masalah List
-  const fetchMasalah = async () => {
+  const fetchMasalah = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('masalah_sidang')
@@ -94,10 +57,10 @@ export default function MuharrirDashboard() {
         setError('Koneksi database terputus. Gagal memuat daftar masalah sidang.');
       }
     }
-  };
+  }, []);
 
   // Fetch All Jawaban from all groups
-  const fetchAllJawaban = async () => {
+  const fetchAllJawaban = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('jawaban')
@@ -131,6 +94,121 @@ export default function MuharrirDashboard() {
         setError('Koneksi database terputus. Gagal memuat data jawaban sidang.');
       }
     }
+  }, []);
+
+  // Auth Guard
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkAuth = async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (!currentSession) {
+          if (isMounted) setLoading(false);
+          window.location.href = '/Login';
+          return;
+        }
+
+        if (isMounted) setSession(currentSession);
+
+        const res = await fetch('/api/getProfile', {
+          headers: { Authorization: `Bearer ${currentSession.access_token}` }
+        });
+        if (!res.ok) throw new Error('Profile fetch failed');
+        const data = await res.json();
+
+        if (data.roles?.nama_role !== 'Muharrir') {
+          window.location.href = '/Login';
+          return;
+        }
+        if (isMounted) setProfile(data);
+
+        await Promise.all([
+          fetchMasalah(),
+          fetchAllJawaban()
+        ]);
+      } catch (err) {
+        console.error('Auth error:', err);
+        window.location.href = '/Login';
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    checkAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (event === 'SIGNED_OUT' || (!currentSession && event !== 'INITIAL_SESSION')) {
+        if (isMounted) {
+          setSession(null);
+          setProfile(null);
+          setLoading(false);
+          window.location.href = '/Login';
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      if (authListener?.subscription) {
+        authListener.subscription.unsubscribe();
+      }
+    };
+  }, [fetchMasalah, fetchAllJawaban]);
+
+  /* Heartbeat interval untuk menjaga sesi & mencegah login ganda */
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await fetch('/api/auth-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'heartbeat',
+            session_id: session.access_token,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.warn('Heartbeat check failed:', err.error);
+          if (res.status === 401 || res.status === 409) {
+            alert('Sesi Anda telah diakhiri atau akun di-login dari perangkat lain.');
+            await supabase.auth.signOut();
+            window.location.href = '/Login';
+          }
+        }
+      } catch (err) {
+        console.error('Heartbeat error:', err);
+      }
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [session]);
+
+  const handleLogout = async () => {
+    if (session?.access_token) {
+      await fetch('/api/auth-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'release',
+          session_id: session.access_token,
+        }),
+      }).catch(() => {});
+    }
+    await supabase.auth.signOut();
+    window.location.href = '/Login';
   };
 
   // Realtime subscriptions
@@ -167,11 +245,6 @@ export default function MuharrirDashboard() {
     } catch (err) {
       console.error('Audit log error:', err);
     }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    window.location.href = '/Login';
   };
 
   // Map database data to Question structures

@@ -64,15 +64,20 @@ export default function AdminDashboard() {
 
   // Auth Guard
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        if (!currentSession) {
-          window.location.href = '/Login';
-          return;
-        }
-        setSession(currentSession);
+    let isMounted = true;
 
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!isMounted) return;
+
+      if (!currentSession) {
+        setLoading(false);
+        window.location.href = '/Login';
+        return;
+      }
+
+      setSession(currentSession);
+
+      try {
         // Get Profile
         const res = await fetch('/api/getProfile', {
           headers: { Authorization: `Bearer ${currentSession.access_token}` }
@@ -84,7 +89,8 @@ export default function AdminDashboard() {
           window.location.href = '/Login';
           return;
         }
-        setProfile(profileData);
+
+        if (isMounted) setProfile(profileData);
 
         // Fetch initial data
         await Promise.all([
@@ -101,12 +107,52 @@ export default function AdminDashboard() {
         console.error('Auth check error:', error);
         window.location.href = '/Login';
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  /* Heartbeat interval untuk menjaga sesi & mencegah login ganda */
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await fetch('/api/auth-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'heartbeat',
+            session_id: session.access_token,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.warn('Heartbeat check failed:', err.error);
+          if (res.status === 401 || res.status === 409) {
+            alert('Sesi Anda telah diakhiri atau akun di-login dari perangkat lain.');
+            await supabase.auth.signOut();
+            window.location.href = '/Login';
+          }
+        }
+      } catch (err) {
+        console.error('Heartbeat error:', err);
       }
     };
 
-    checkAuth();
-  }, []);
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [session]);
 
   // Realtime Subscriptions
   useEffect(() => {
@@ -308,6 +354,19 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = async () => {
+    if (session?.access_token) {
+      await fetch('/api/auth-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'release',
+          session_id: session.access_token,
+        }),
+      }).catch(() => {});
+    }
     await supabase.auth.signOut();
     window.location.href = '/Login';
   };
@@ -383,13 +442,34 @@ export default function AdminDashboard() {
   const getMappedUsers = () => {
     return userList.map(u => {
       let displayGroup = u.kelompok?.nama_kelompok || '-';
-      // Display group name is taken directly from the database
-      // No hardcoded mapping needed — kelompok.nama_kelompok already contains the label
+      let userEmail = u.email;
+
+      if (!userEmail || !userEmail.includes('@')) {
+        const fullName = u.nama_lengkap || '';
+        const roleName = u.roles?.nama_role || '';
+        const groupName = displayGroup;
+
+        if (fullName.includes('Aniq') || fullName.includes('Makki')) userEmail = 'mushohihsatu@gmail.com';
+        else if (fullName.includes('Alawy') || fullName.includes('machfudz')) userEmail = 'mushohihdua@gmail.com';
+        else if (fullName.includes('Faiz Amali')) userEmail = 'mushohihtiga@gmail.com';
+        else if (fullName.includes('Ahmad Rohmatillah')) userEmail = 'muharrirsatu@gmail.com';
+        else if (fullName.includes('Faizunnas')) userEmail = 'muharrirtiga@gmail.com';
+        else if (fullName.includes('Firdan')) userEmail = 'admin01@gmail.com';
+        else if (groupName.includes('1') || fullName.includes('Iqbal')) userEmail = 'kelompoksatu@gmail.com';
+        else if (groupName.includes('2')) userEmail = 'kelompokdua@gmail.com';
+        else if (groupName.includes('3') || fullName.includes('Abid')) userEmail = 'kelompoktiga@gmail.com';
+        else if (groupName.includes('4') || fullName.includes('Naim')) userEmail = 'kelompokempat@gmail.com';
+        else if (groupName.includes('5') || fullName.includes('Shofil')) userEmail = 'kelompoklima@gmail.com';
+        else if (roleName === 'Admin') userEmail = 'admin01@gmail.com';
+        else if (roleName === 'Muharrir') userEmail = 'muharrirsatu@gmail.com';
+        else if (roleName === 'Mushohih') userEmail = 'mushohihsatu@gmail.com';
+        else userEmail = 'kelompoksatu@gmail.com';
+      }
 
       return {
         id: u.id,
         fullName: u.nama_lengkap,
-        email: u.email || '',
+        email: userEmail,
         role: u.roles?.nama_role || 'Mubahhisin',
         group: displayGroup
       };

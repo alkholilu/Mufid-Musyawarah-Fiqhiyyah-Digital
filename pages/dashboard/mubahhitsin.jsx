@@ -73,15 +73,20 @@ export default function MubahhitsinDashboard() {
      AUTH CHECK & INITIAL DATA FETCH
   ───────────────────────────────────────────── */
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        if (!currentSession) {
-          window.location.href = '/Login';
-          return;
-        }
-        setSession(currentSession);
+    let isMounted = true;
 
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!isMounted) return;
+
+      if (!currentSession) {
+        setLoading(false);
+        window.location.href = '/Login';
+        return;
+      }
+
+      setSession(currentSession);
+
+      try {
         // Fetch profile via API
         const res = await fetch('/api/getProfile', {
           headers: { Authorization: `Bearer ${currentSession.access_token}` },
@@ -118,8 +123,11 @@ export default function MubahhitsinDashboard() {
           kelompok_id: kelompokId,
           kelompok: currentKelompok
         };
-        setProfile(userProfileObj);
-        setKelompok(currentKelompok);
+
+        if (isMounted) {
+          setProfile(userProfileObj);
+          setKelompok(currentKelompok);
+        }
 
         // Fetch initial masalah list
         const { data: masalahData, error: mError } = await supabase
@@ -127,29 +135,73 @@ export default function MubahhitsinDashboard() {
           .select('*')
           .order('created_at', { ascending: false });
         if (mError) throw mError;
-        setMasalahList(masalahData || []);
 
         const { data: allJData } = await supabase
           .from('jawaban')
           .select('*, kelompok(nama_kelompok)');
-        setAllJawaban(allJData || []);
 
-        if (kelompokId && allJData) {
-          const map = {};
-          allJData.filter(j => j.kelompok_id === kelompokId).forEach((j) => {
-            map[j.masalah_id] = j;
-          });
-          setJawabanMap(map);
+        if (isMounted) {
+          setMasalahList(masalahData || []);
+          setAllJawaban(allJData || []);
+
+          if (kelompokId && allJData) {
+            const map = {};
+            allJData.filter(j => j.kelompok_id === kelompokId).forEach((j) => {
+              map[j.masalah_id] = j;
+            });
+            setJawabanMap(map);
+          }
         }
       } catch (err) {
         console.error('Error during auth check:', err);
         window.location.href = '/Login';
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  /* Heartbeat interval untuk menjaga sesi & mencegah login ganda */
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await fetch('/api/auth-session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'heartbeat',
+            session_id: session.access_token,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.warn('Heartbeat check failed:', err.error);
+          if (res.status === 401 || res.status === 409) {
+            alert('Sesi Anda telah diakhiri atau akun di-login dari perangkat lain.');
+            await supabase.auth.signOut();
+            window.location.href = '/Login';
+          }
+        }
+      } catch (err) {
+        console.error('Heartbeat error:', err);
       }
     };
-    checkAuth();
-  }, []);
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000);
+    return () => clearInterval(interval);
+  }, [session]);
 
   /* ─────────────────────────────────────────────
      FETCH MASALAH + JAWABAN
@@ -248,6 +300,19 @@ export default function MubahhitsinDashboard() {
 
   /* ── Logout ── */
   const handleLogout = async () => {
+    if (session?.access_token) {
+      await fetch('/api/auth-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'release',
+          session_id: session.access_token,
+        }),
+      }).catch(() => {});
+    }
     await supabase.auth.signOut();
     window.location.href = '/Login';
   };

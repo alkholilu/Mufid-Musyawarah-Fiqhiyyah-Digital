@@ -47,13 +47,13 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/Tentang" className="transition hover:text-white">
-                  Tentang
+                <Link href="/Repositori" className="transition hover:text-white">
+                  Repositori
                 </Link>
               </li>
               <li>
-                <Link href="/Repositori" className="transition hover:text-white">
-                  Repositori
+                <Link href="/Tentang" className="transition hover:text-white">
+                  Tentang
                 </Link>
               </li>
               <li>
