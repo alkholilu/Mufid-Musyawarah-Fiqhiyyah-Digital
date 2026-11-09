@@ -62,23 +62,21 @@ export default function AdminDashboard() {
     setTimeout(() => setNotification(null), 4000);
   }, []);
 
-  // Auth Guard
+  // Auth Guard & Immediate Session Loader
   useEffect(() => {
     let isMounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
-      if (!isMounted) return;
-
-      if (!currentSession) {
-        setLoading(false);
-        window.location.href = '/Login';
-        return;
-      }
-
-      setSession(currentSession);
-
+    const checkAuth = async () => {
       try {
-        // Get Profile
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !currentSession) {
+          setLoading(false);
+          window.location.href = '/Login';
+          return;
+        }
+
+        if (isMounted) setSession(currentSession);
+
         const res = await fetch('/api/getProfile', {
           headers: { Authorization: `Bearer ${currentSession.access_token}` }
         });
@@ -109,6 +107,20 @@ export default function AdminDashboard() {
       } finally {
         if (isMounted) setLoading(false);
       }
+    };
+
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      if (!isMounted) return;
+
+      if (!currentSession) {
+        setLoading(false);
+        window.location.href = '/Login';
+        return;
+      }
+
+      setSession(currentSession);
     });
 
     return () => {
@@ -154,6 +166,15 @@ export default function AdminDashboard() {
     return () => clearInterval(interval);
   }, [session]);
 
+  // Auto-refresh data when switching to relevant sub-menus like Arsip Digital & Ketuk Palu
+  useEffect(() => {
+    if (!session) return;
+    if (activeTab === 'arsip' || activeTab === 'mushohih-ketuk' || activeTab === 'bahtsul') {
+      fetchMasalah();
+      fetchAllJawaban();
+    }
+  }, [activeTab, session]);
+
   // Realtime Subscriptions
   useEffect(() => {
     if (!session) return;
@@ -162,6 +183,7 @@ export default function AdminDashboard() {
       .channel('admin-dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'masalah_sidang' }, () => {
         fetchMasalah();
+        fetchAllJawaban();
         fetchStats();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'repositori_dokumen' }, () => {
@@ -176,6 +198,7 @@ export default function AdminDashboard() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'jawaban' }, () => {
         fetchAllJawaban();
+        fetchMasalah();
       })
       .subscribe();
 
@@ -337,9 +360,12 @@ export default function AdminDashboard() {
           status_hukum,
           referensi_terpilih,
           catatan_analisis_perumus,
+          kesimpulan_global_rumusan,
           kelompok_id,
           status,
           terjemahan_indo,
+          excluded_from_pdf,
+          citations_json,
           kelompok:kelompok_id ( id, nama_kelompok )
         `)
         .order('kelompok_id', { ascending: true });
@@ -418,11 +444,15 @@ export default function AdminDashboard() {
             })(),
             text: j.argumen_indo || '',
             citations: finalCitations,
-            status: m.status_sidang === 'Selesai' ? 'Disahkan' : (j.status || 'Draft'),
+            status: m.status_sidang === 'Selesai' || m.status_sidang === 'Disahkan' ? 'Disahkan' : (j.status || 'Draft'),
             isReferensiUtama: j.referensi_terpilih || false,
             evaluationNote: j.catatan_analisis_perumus || ''
           };
         });
+
+      // Find the Natijah from the responses in the database
+      const responseWithNatijah = allJawaban.find(j => j.masalah_id === m.id && j.kesimpulan_global_rumusan);
+      const finalFatwa = responseWithNatijah?.kesimpulan_global_rumusan || m.final_fatwa || m.kesimpulan_global_rumusan || '';
 
       return {
         id: m.id,
@@ -432,7 +462,7 @@ export default function AdminDashboard() {
         year: m.tahun_sidang,
         waqiIyyah: m.deskripsi_masalah,
         asilah: m.soal_pertanyaan,
-        finalFatwa: m.final_fatwa || '',
+        finalFatwa: finalFatwa,
         createdAt: m.created_at,
         responses: responses
       };
@@ -601,7 +631,71 @@ export default function AdminDashboard() {
           const resData = await res.json();
           if (!res.ok) throw new Error(resData.error || 'Gagal memperbarui masalah.');
 
+          // If status changed to Disahkan or Ketuk Palu
+          if (nextQ.status !== prevQ.status) {
+            const fatwaToSave = nextQ.finalFatwa || prevQ.finalFatwa || '';
+            const { data: existingJawaban } = await supabase
+              .from('jawaban')
+              .select('id')
+              .eq('masalah_id', nextQ.id);
+
+            if (existingJawaban && existingJawaban.length > 0) {
+              await supabase
+                .from('jawaban')
+                .update({
+                  kesimpulan_global_rumusan: fatwaToSave,
+                  status: nextQ.status
+                })
+                .eq('masalah_id', nextQ.id);
+            } else if (fatwaToSave) {
+              await supabase
+                .from('jawaban')
+                .insert({
+                  masalah_id: nextQ.id,
+                  kelompok_id: null,
+                  kesimpulan_global_rumusan: fatwaToSave,
+                  argumen_indo: fatwaToSave,
+                  status: nextQ.status
+                });
+            }
+          }
+
           showToast('Sukses! Masalah sidang berhasil diperbarui.', 'success');
+          fetchMasalah();
+          fetchAllJawaban();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+
+      // Check for inline edits to natijah text / final fatwa
+      if (nextQ.finalFatwa !== prevQ.finalFatwa && nextQ.status === prevQ.status) {
+        try {
+          const { data: existingJawaban } = await supabase
+            .from('jawaban')
+            .select('id')
+            .eq('masalah_id', nextQ.id);
+
+          if (existingJawaban && existingJawaban.length > 0) {
+            await supabase
+              .from('jawaban')
+              .update({
+                kesimpulan_global_rumusan: nextQ.finalFatwa
+              })
+              .eq('masalah_id', nextQ.id);
+          } else {
+            await supabase
+              .from('jawaban')
+              .insert({
+                masalah_id: nextQ.id,
+                kelompok_id: null,
+                kesimpulan_global_rumusan: nextQ.finalFatwa,
+                argumen_indo: nextQ.finalFatwa,
+                status: nextQ.status
+              });
+          }
+
+          await logAudit('KOREKSI_NATIJAH', `Mengoreksi draf Natijah untuk masalah: ${nextQ.title}`);
           fetchMasalah();
           fetchAllJawaban();
         } catch (err) {

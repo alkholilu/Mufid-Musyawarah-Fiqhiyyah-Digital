@@ -109,18 +109,26 @@ export default function MushohihPanel({
     // Fetch initial Natijah from database for Palu menu
     const fetchNatijahForPalu = async () => {
       try {
-        const { data: mData } = await supabase
-          .from('masalah_sidang')
-          .select('kesimpulan_global_rumusan, final_fatwa')
-          .eq('id', idMasalahAktif)
+        const { data: jData } = await supabase
+          .from('jawaban')
+          .select('kesimpulan_global_rumusan')
+          .eq('masalah_id', idMasalahAktif)
+          .not('kesimpulan_global_rumusan', 'is', null)
+          .limit(1)
           .maybeSingle();
 
-        if (mData && (mData.kesimpulan_global_rumusan || mData.final_fatwa)) {
-          const text = mData.kesimpulan_global_rumusan || mData.final_fatwa;
+        if (jData && jData.kesimpulan_global_rumusan) {
+          const text = jData.kesimpulan_global_rumusan;
           setNaskahFinalPalu(text);
           if (!isDirtyNatijah.current) {
             setDraftNatijah(text);
             setNatijahText(text);
+          }
+        } else if (currentQ.finalFatwa) {
+          setNaskahFinalPalu(currentQ.finalFatwa);
+          if (!isDirtyNatijah.current) {
+            setDraftNatijah(currentQ.finalFatwa);
+            setNatijahText(currentQ.finalFatwa);
           }
         }
       } catch (err) {
@@ -141,19 +149,8 @@ export default function MushohihPanel({
           table: 'masalah_sidang',
           filter: `id=eq.${idMasalahAktif}`
         },
-        (payload) => {
-          console.log('[Realtime Listener Palu] Payload update:', payload);
-          const newData = payload.new as Record<string, any> | null;
-          if (newData) {
-            const updatedText = newData.kesimpulan_global_rumusan || newData.final_fatwa;
-            if (updatedText) {
-              setNaskahFinalPalu(updatedText);
-              if (!isDirtyNatijah.current) {
-                setDraftNatijah(updatedText);
-                setNatijahText(updatedText);
-              }
-            }
-          }
+        () => {
+          fetchNatijahForPalu();
         }
       )
       .on(

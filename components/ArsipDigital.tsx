@@ -20,11 +20,16 @@ export default function ArsipDigital({ questions, userRole }: ArsipDigitalProps)
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedQForPdf, setSelectedQForPdf] = useState<Question | null>(null);
   
-  const disahkanQuestions = questions.filter(
-    (q) => (q.status === "Disahkan" || q.status === "Selesai") && 
-    (q.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-     q.finalFatwa?.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const disahkanQuestions = (questions || []).filter((q) => {
+    const status = (q.status || "").toLowerCase();
+    const isApproved = status === "disahkan" || status === "selesai";
+    if (!isApproved) return false;
+
+    const term = searchTerm.toLowerCase();
+    const titleMatch = (q.title || "").toLowerCase().includes(term);
+    const fatwaMatch = (q.finalFatwa || "").toLowerCase().includes(term);
+    return titleMatch || fatwaMatch;
+  });
 
   const handleShare = (title: string) => {
     alert(`Tautan fatwa hukum disalin ke clipboard:\n\nhttps://mufid.id/fatwa-resmi/${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);

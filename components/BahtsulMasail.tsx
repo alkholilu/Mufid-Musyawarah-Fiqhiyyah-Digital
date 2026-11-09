@@ -1059,9 +1059,10 @@ export default function BahtsulMasail({
   const handleKetukPalu = () => {
     setGavelStruck(true);
 
+    const baseFatwa = natijahText || currentQ.finalFatwa || "";
     const combinedFatwa = mushohihNote 
-      ? `${natijahText}\n\n=== CATATAN PENTASHIH DEWAN MUSHOhiH ===\n${mushohihNote}`
-      : natijahText;
+      ? `${baseFatwa}\n\n=== CATATAN PENTASHIH DEWAN MUSHOhiH ===\n${mushohihNote}`
+      : baseFatwa;
 
     const updatedQ: Question = {
       ...currentQ,

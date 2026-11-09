@@ -356,15 +356,35 @@ export default function MushohihDashboard() {
           if (statusError) throw statusError;
 
           // Update Natijah and status in jawaban table
-          const { error: natijahError } = await supabase
+          const fatwaToSave = nextQ.finalFatwa || prevQ.finalFatwa || '';
+          const { data: existingJawaban } = await supabase
             .from('jawaban')
-            .update({
-              kesimpulan_global_rumusan: nextQ.finalFatwa,
-              status: nextQ.status
-            })
+            .select('id')
             .eq('masalah_id', nextQ.id);
 
-          if (natijahError) throw natijahError;
+          if (existingJawaban && existingJawaban.length > 0) {
+            const { error: natijahError } = await supabase
+              .from('jawaban')
+              .update({
+                kesimpulan_global_rumusan: fatwaToSave,
+                status: nextQ.status
+              })
+              .eq('masalah_id', nextQ.id);
+
+            if (natijahError) throw natijahError;
+          } else if (fatwaToSave) {
+            const { error: insertError } = await supabase
+              .from('jawaban')
+              .insert({
+                masalah_id: nextQ.id,
+                kelompok_id: null,
+                kesimpulan_global_rumusan: fatwaToSave,
+                argumen_indo: fatwaToSave,
+                status: nextQ.status
+              });
+
+            if (insertError) throw insertError;
+          }
 
           // If disahkan, show toast
           if (nextQ.status === 'Disahkan' || nextQ.status === 'Selesai') {
@@ -382,15 +402,33 @@ export default function MushohihDashboard() {
       // Check for inline edits to natijah text
       if (nextQ.finalFatwa !== prevQ.finalFatwa && nextQ.status === prevQ.status) {
         try {
-          // Update Natijah in jawaban table!
-          const { error: natijahError } = await supabase
+          const { data: existingJawaban } = await supabase
             .from('jawaban')
-            .update({
-              kesimpulan_global_rumusan: nextQ.finalFatwa
-            })
+            .select('id')
             .eq('masalah_id', nextQ.id);
 
-          if (natijahError) throw natijahError;
+          if (existingJawaban && existingJawaban.length > 0) {
+            const { error: natijahError } = await supabase
+              .from('jawaban')
+              .update({
+                kesimpulan_global_rumusan: nextQ.finalFatwa
+              })
+              .eq('masalah_id', nextQ.id);
+
+            if (natijahError) throw natijahError;
+          } else {
+            const { error: insertError } = await supabase
+              .from('jawaban')
+              .insert({
+                masalah_id: nextQ.id,
+                kelompok_id: null,
+                kesimpulan_global_rumusan: nextQ.finalFatwa,
+                argumen_indo: nextQ.finalFatwa,
+                status: nextQ.status
+              });
+
+            if (insertError) throw insertError;
+          }
 
           await logAudit('KOREKSI_NATIJAH', `Mengoreksi draf Natijah untuk masalah: ${nextQ.title}`);
           fetchMasalah();
