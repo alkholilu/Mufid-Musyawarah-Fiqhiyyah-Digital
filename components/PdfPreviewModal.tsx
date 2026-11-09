@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Question } from "../types";
-import { X, Printer, CheckCircle, FileText } from "lucide-react";
+import { X, Printer, CheckCircle, FileText, Download } from "lucide-react";
 
 interface PdfPreviewModalProps {
   question: Question;
@@ -373,9 +373,20 @@ export default function PdfPreviewModal({
             type="button"
             onClick={handleTriggerPrint}
             className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 transition-all border border-emerald-500/20 cursor-pointer"
+            title="Download atau Simpan Lembar Keputusan sebagai PDF"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download PDF</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTriggerPrint}
+            className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 hover:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-slate-700 cursor-pointer"
+            title="Cetak langsung dokumen"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>Cetak / Simpan PDF</span>
+            <span className="hidden sm:inline">Cetak</span>
           </button>
           
           <button

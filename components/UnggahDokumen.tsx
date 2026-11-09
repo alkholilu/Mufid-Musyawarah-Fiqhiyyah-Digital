@@ -11,7 +11,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   Sparkle,
-  Sparkles
+  Sparkles,
+  Download
 } from "lucide-react";
 import { UploadedDocument } from "../types";
 
@@ -407,6 +408,19 @@ export default function UnggahDokumen({
 
                   {/* Actions */}
                   <div className="flex items-center gap-2.5 shrink-0">
+                    <a
+                      href={doc.path}
+                      download={doc.name}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl transition-all border border-slate-200 cursor-pointer"
+                      title="Download Dokumen PDF"
+                      id={`btn-download-${doc.id}`}
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Download</span>
+                    </a>
+
                     <button
                       onClick={() => handleCopyUrl(doc)}
                       className="inline-flex items-center gap-1.5 bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
