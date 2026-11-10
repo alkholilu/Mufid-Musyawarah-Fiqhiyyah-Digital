@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Question } from "../types";
 import { X, Printer, CheckCircle, FileText, Download } from "lucide-react";
 
@@ -17,10 +18,20 @@ export default function PdfPreviewModal({
   customNatijah,
   customNote
 }: PdfPreviewModalProps) {
+  const [mounted, setMounted] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
+      // Auto-scroll modal container to top when opened
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
     } else {
       document.body.style.overflow = "";
     }
@@ -29,7 +40,19 @@ export default function PdfPreviewModal({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  // Keyboard shortcut: Press Escape to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !mounted) return null;
 
   const title = question.title || "";
   const waqiIyyah = question.waqiIyyah || "";
@@ -284,8 +307,8 @@ export default function PdfPreviewModal({
     }
   };
 
-  return (
-    <div className="printable-pdf-modal-parent fixed inset-0 z-[99999] bg-slate-950/90 backdrop-blur-md overflow-y-auto flex flex-col items-center justify-start p-3 sm:p-6 md:p-10 block">
+  const modalContent = (
+    <div className="printable-pdf-modal-parent fixed inset-0 z-[999999] bg-slate-950/95 backdrop-blur-md flex flex-col h-screen w-screen overflow-hidden text-slate-100">
       {/* Dynamic Print Styles */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
@@ -347,65 +370,81 @@ export default function PdfPreviewModal({
         }
       `}} />
 
-      {/* Control Header Bar - Sticky at top */}
-      <div className="no-print sticky top-0 z-[100] w-full max-w-4xl bg-slate-900/95 backdrop-blur border border-slate-700/80 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 shadow-2xl shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="bg-emerald-500/20 text-emerald-400 p-2 rounded-xl border border-emerald-500/30">
-            <FileText className="w-5 h-5" />
+      {/* 1. PERMANENTLY FIXED TOP HEADER BAR (NEVER SCROLLS AWAY) */}
+      <header className="no-print shrink-0 w-full bg-slate-900 border-b border-slate-800 px-3 py-2.5 sm:px-6 sm:py-3 shadow-2xl z-50 flex items-center justify-between gap-2 sm:gap-4">
+        {/* Left: Branding & Status */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="bg-emerald-500/20 text-emerald-400 p-1.5 sm:p-2 rounded-xl border border-emerald-500/30 shrink-0">
+            <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-extrabold text-white uppercase tracking-wider font-mono">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h3 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider font-mono truncate">
                 Lembar Fatwa Resmi MUFID
               </h3>
-              <span className="text-[9px] bg-emerald-500 text-slate-950 font-extrabold px-1.5 py-0.5 rounded uppercase font-sans">
-                Dokumen Resmi Sidang
+              <span className="hidden xs:inline-flex text-[9px] bg-emerald-500 text-slate-950 font-extrabold px-1.5 py-0.5 rounded uppercase font-sans shrink-0">
+                Dokumen Resmi
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium">
+            <p className="text-[10px] text-slate-400 font-medium truncate hidden md:block">
               Lampiran Keputusan Sidang Bahtsul Masail
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+        {/* Right: Actions (Download PDF, Cetak, Tutup) */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           <button
             type="button"
             onClick={handleTriggerPrint}
-            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 transition-all border border-emerald-500/20 cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-extrabold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50 transition-all border border-emerald-500/30 cursor-pointer"
             title="Download atau Simpan Lembar Keputusan sebagai PDF"
+            id="modal-btn-download-top"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             <span>Download PDF</span>
           </button>
 
           <button
             type="button"
             onClick={handleTriggerPrint}
-            className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 hover:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-slate-700 cursor-pointer"
+            className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 hover:text-white text-xs font-bold px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all border border-slate-700 cursor-pointer"
             title="Cetak langsung dokumen"
+            id="modal-btn-cetak-top"
           >
-            <Printer className="w-3.5 h-3.5" />
+            <Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             <span className="hidden sm:inline">Cetak</span>
           </button>
           
           <button
             type="button"
             onClick={onClose}
-            className="bg-slate-700 hover:bg-slate-600 active:scale-95 text-slate-200 hover:text-white text-xs font-bold px-3 py-2.5 rounded-xl flex items-center justify-center gap-1 transition-all border border-slate-600 cursor-pointer"
+            className="bg-rose-500/10 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 active:scale-95 text-xs font-bold px-2.5 sm:px-3.5 py-2 sm:py-2.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer"
+            title="Tutup Pratinjau (Esc)"
+            id="modal-btn-tutup-top"
           >
-            <X className="w-4 h-4" />
-            <span className="hidden sm:inline">Tutup</span>
+            <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Tutup</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Printable PDF Page (A4 Paper Mockup - 100% IDENTICAL TO KETOK PALU SIDANG SHEET) */}
-      <div 
-        id="printable-pdf-content" 
-        style={{ backgroundColor: '#ffffff', color: '#09090b', opacity: 1, minHeight: '1100px' }}
-        className="printable-pdf-modal bg-white text-gray-950 shadow-2xl border border-gray-200 p-8 sm:p-12 md:p-14 mx-auto my-6 w-full max-w-[850px] rounded-sm font-serif flex flex-col justify-start space-y-8 relative opacity-100 shrink-0 block"
+      {/* 2. MIDDLE SCROLLABLE PREVIEW AREA */}
+      <main 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto overflow-x-auto p-2 sm:p-6 md:p-10 flex flex-col items-center justify-start overscroll-contain"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
       >
+        {/* Printable PDF Page (A4 Paper Mockup - 100% IDENTICAL TO KETOK PALU SIDANG SHEET) */}
+        <div 
+          id="printable-pdf-content" 
+          style={{ backgroundColor: '#ffffff', color: '#09090b', opacity: 1, minHeight: '1100px' }}
+          className="printable-pdf-modal bg-white text-gray-950 shadow-2xl border border-gray-200 p-5 sm:p-10 md:p-14 mx-auto my-2 sm:my-6 w-full max-w-[850px] rounded-sm font-serif flex flex-col justify-start space-y-8 relative opacity-100 shrink-0"
+        >
         {/* Bagian Kop Kepala Surat LBM */}
         <div style={{ borderColor: '#09090b' }} className="text-center font-bold font-serif space-y-1 border-b-4 border-double border-slate-950 pb-4 mb-6">
           <h2 style={{ color: '#09090b' }} className="text-xl md:text-2xl font-black !text-slate-950 tracking-wider uppercase">
@@ -525,6 +564,44 @@ export default function PdfPreviewModal({
           <span>Platform Digital MUFID</span>
         </div>
       </div>
-    </div>
+    </main>
+
+    {/* 3. MOBILE BOTTOM FLOATING ACTION BAR (PADA LAYAR HP) */}
+    <footer className="no-print sm:hidden shrink-0 w-full bg-slate-900/98 backdrop-blur border-t border-slate-800 px-3 py-2.5 flex items-center justify-between gap-2 z-50 shadow-2xl">
+      <button
+        type="button"
+        onClick={handleTriggerPrint}
+        className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50 cursor-pointer"
+        id="modal-btn-download-bottom"
+      >
+        <Download className="w-4 h-4 shrink-0" />
+        <span>Download PDF</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={handleTriggerPrint}
+        className="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center justify-center gap-1 border border-slate-700 cursor-pointer"
+        title="Cetak Dokumen"
+        id="modal-btn-cetak-bottom"
+      >
+        <Printer className="w-4 h-4 shrink-0" />
+        <span>Cetak</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="bg-rose-500/10 hover:bg-rose-600 text-rose-300 hover:text-white active:scale-95 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center justify-center gap-1 border border-rose-500/30 cursor-pointer"
+        title="Tutup Pratinjau"
+        id="modal-btn-tutup-bottom"
+      >
+        <X className="w-4 h-4 shrink-0" />
+        <span>Tutup</span>
+      </button>
+    </footer>
+  </div>
   );
+
+  return createPortal(modalContent, document.body);
 }
